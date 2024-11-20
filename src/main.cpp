@@ -1,6 +1,8 @@
 //------------------------------------------------------------------------
 // Motor - USING PWM
 //-------------------------------------------------------------------------
+#include "Arduino.h"
+
 #define MotorA1 8 // MotorA1 at port 8 digital
 #define MotorA2 10 // MotorA2 at port 10 analog
 #define MotorB1 11 // MotorB1 at port 11 analog 
