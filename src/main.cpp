@@ -7,6 +7,11 @@
 #define MotorB1 11 // MotorB1 at port 11 analog
 #define MotorB2 9 // MotorB2 at port 9 analog
  
+// A1 left backward
+// A2 left forward
+// B1 right forward
+// B2 right backward
+
 void forward();
 void backward();
 void stop();
