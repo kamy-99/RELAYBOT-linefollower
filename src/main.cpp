@@ -14,6 +14,7 @@ void spin_Right();
 void spin_Left();
 void turn_Right();
 void turn_Left();
+void sonar();
 
 
 int pwm;
