@@ -1,7 +1,7 @@
 #include <Arduino.h>
 
-#define trig 4
-#define echo 7
+#define trig 4 // Trigger of sonar at port 4 
+#define echo 7 // Echo of sonar at port 7
 #define MotorA1 8 // MotorA1 at port 8 digital
 #define MotorA2 10 // MotorA2 at port 10 analog
 #define MotorB1 11 // MotorB1 at port 11 analog
