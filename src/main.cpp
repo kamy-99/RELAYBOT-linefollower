@@ -24,21 +24,6 @@
 // Sensor pin definitions
 int linePins[] = {A0, A1, A2, A3, A4, A5, A6, A7};
 
-#define AVERAGE_WINDOW 1  // Number of readings to average
-int recentReadings[8][AVERAGE_WINDOW];
-int readingIndex = 0;
-
-int pwm;
-int amount = 0;
-
-int RightRotation = 0;
-int LeftRotation = 0;
-int angle = 50;
-
-long duration = pulseIn(echo, HIGH);
-int distance = (duration * 0.017); // Distance in cm
-bool flagUp = false;
-
 // Arrays to store sensor values
 int minlineValue[8];
 int maxlineValue[8];
@@ -49,6 +34,38 @@ int Low_Threshold[8];
 // Sensor states
 String sensorStates[8]; // Holds the current state for each sensor
 
+// Define the weights for each sensor (based on their distance from the center)
+int sensorWeights[] = {-3, -2, -1, 0, 0, 1, 2, 3};  // A0 has weight -3, A7 has weight +3
+
+
+#define AVERAGE_WINDOW 1  // Number of readings to average
+int recentReadings[8][AVERAGE_WINDOW];
+int readingIndex = 0;
+
+// PWM
+int pwm;
+int amount = 0;
+
+// Rotation sensor
+int RightRotation = 0;
+int LeftRotation = 0;
+int angle = 50;
+
+// Sonar
+long duration = pulseIn(echo, HIGH);
+int distance = (duration * 0.017); // Distance in cm
+bool flagUp = false;
+
+// PID variables
+float Kp = 0.5;   // Proportional constant
+float Ki = 0.05;  // Integral constant
+float Kd = 0.1;   // Derivative constant
+
+float prevError = 0;    // Previous error value (for derivative term)
+float integral = 0;     // Accumulated error (for integral term)
+
+
+// To be able to use the functions via Platform IO
 void forward();
 void backward();
 void stop();
@@ -72,11 +89,14 @@ void setup() {
  pinMode(MotorA2, OUTPUT); // MotorA2 is output
  pinMode(MotorB1, OUTPUT); // MotorB1 is output
  pinMode(MotorB2, OUTPUT); // MotorB2 is output
+
  pinMode(trig, OUTPUT);
  pinMode(echo, INPUT);
+
  pinMode(Gripper, OUTPUT);
  pinMode(RotationR1, INPUT_PULLUP);
  pinMode(RotationR2, INPUT_PULLUP);
+
  attachInterrupt(digitalPinToInterrupt(RotationR1), updaterotation_R1, CHANGE);
  attachInterrupt(digitalPinToInterrupt(RotationR2), updaterotation_R2, CHANGE);
 }
@@ -226,6 +246,68 @@ void reset_Rotations()
   RightRotation = 0;
   LeftRotation = 0;
   interrupts();
+}
+
+
+void steerError()
+{
+  int steeringError = 0; // Variable to store the calculated error for steering
+
+   // Read all sensor values and calculate the weighted sum (steering error)
+   for (int i =0; i < 8; i++)
+   {
+    if (sensorStates[i] == "black")
+    {
+      steeringError += sensorWeights[i];  // Add weighted sensor value to the total error
+    }
+   }
+
+  // // Use the PID output to control the motors
+  // adjustSteering(PID_output, steeringError);
+}
+
+int PID(int steeringError)
+{
+   // Proportional term
+  int proportional = Kp * steeringError;
+
+  // Integral term
+  integral += steeringError;  // Accumulate error over time
+  int integralTerm = Ki * integral;
+
+  // Derivative term
+  int derivative = steeringError - prevError;  // Rate of change of error
+  int derivativeTerm = Kd * derivative;
+
+  // Update previous error for the next loop
+  prevError = steeringError;
+
+  // Return the combined PID output
+  return proportional + integralTerm + derivativeTerm;
+}
+
+
+void adjustSteering(int steeringError) 
+{
+   // Calculate PID values based on the steering error
+  int PID_output = PID(steeringError);
+
+  // Adjust movement based on steering error
+  	if (steeringError > 0)
+    {
+      // If error is positive, steer right
+
+
+    } else if (steeringError < 0)
+    {
+      // If error is negative, steer left
+
+    }
+    else
+    {
+      forward();
+    }
+
 }
  
 void sonar() // printing distance
