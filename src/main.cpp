@@ -25,17 +25,22 @@
 int linePins[] = {A0, A1, A2, A3, A4, A5, A6, A7};
 
 // Arrays to store sensor values
-int minlineValue[8];
-int maxlineValue[8];
+int minlineValue[8] = {9999};
+int maxlineValue[8] = {-9999};
 int avglineValue[8];
 int High_Threshold[8];
 int Low_Threshold[8];
 
+
 // Sensor states
 String sensorStates[8]; // Holds the current state for each sensor
+int sensorValues[8];
+
+// Add an array to store the previous state of each sensor
+String previousSensorStates[8];
 
 // Define the weights for each sensor (based on their distance from the center)
-int sensorWeights[] = {-3, -2, -1, 0, 0, 1, 2, 3};  // A0 has weight -3, A7 has weight +3
+float sensorWeights[] = {-5, -4, -3, 1, 1, 3, 4, 5};  // A0 has weight -3, A7 has weight +3
 
 
 #define AVERAGE_WINDOW 1  // Number of readings to average
@@ -57,9 +62,9 @@ int distance = (duration * 0.017); // Distance in cm
 bool flagUp = false;
 
 // PID variables
-float Kp = 0.5;   // Proportional constant
-float Ki = 0.05;  // Integral constant
-float Kd = 0.1;   // Derivative constant
+float Kp = 6.0;   // Increase proportional constant for quicker response
+float Ki = 0.7;   // Small integral constant to reduce drift over time
+float Kd = 1.1;   // Moderate derivative constant to dampen oscillations
 
 float prevError = 0;    // Previous error value (for derivative term)
 float integral = 0;     // Accumulated error (for integral term)
@@ -78,9 +83,14 @@ void Initializing();
 void calibrateSensors();
 void lineCalibration();
 void determineStates();
+void printSensorStates();
 void updaterotation_R1();
 void updaterotation_R2();
 void reset_Rotations();
+void steerError();
+int PID(int steeringError);
+void adjustSteering(int steeringError);
+void updateLineCalibration();
 
 void setup() {
  Serial.begin(9600);
@@ -105,9 +115,26 @@ void loop()
 {
   updaterotation_R2();
   updaterotation_R1();
-  forward();
- 
-  // if (flagUp = true)
+  updateLineCalibration();
+  calibrateSensors();
+  determineStates();
+  int steeringError = 0; // Variable to store the calculated error for steering
+
+   // Read all sensor values and calculate the weighted sum (steering error)
+   for (int i =0; i < 8; i++)
+   {
+    if (sensorStates[i] == "black")
+    {
+      steeringError += sensorWeights[i];  // Add weighted sensor value to the total error
+    }
+   }
+  
+  PID(steeringError);
+
+  adjustSteering(steeringError); 
+  printSensorStates();
+  // Serial.println("after loop");
+  // if (flagUp == true)
   // {
   //   turn_Left();
   //   spin_Right();
@@ -115,7 +142,7 @@ void loop()
   //   spin_Left();
   //   stop();
   // }
-  sonar();
+  //sonar();
 }
 
 void flagCheck()
@@ -126,12 +153,11 @@ void flagCheck()
   }
 }
 
-void Initializing(){
+void Initializing()
+{
   for (int i = 0; i < 8; i++) {
     pinMode(linePins[i], INPUT);
-    minlineValue[i] = 1023;  // Initialize with max possible value
-    maxlineValue[i] = 0;     // Initialize with min possible value
-    sensorStates[i] = " "; // Initial state for all sensors
+    sensorStates[i] = "white"; // Initial state for all sensors
 
     // Initialize recent readings
     for (int j = 0; j < AVERAGE_WINDOW; j++) {
@@ -140,8 +166,19 @@ void Initializing(){
   }
 }
 
+void updateLineCalibration() {
+  static unsigned long timer = 0;
+  if (millis() - timer > 1000) {
+    lineCalibration();
+  }
+  timer = millis(); // update every 0.25s can change
+}
+
+
 void calibrateSensors() {
-  for (int i = 0; i < 100; i++) {  // Adjust the number of calibration iterations as needed
+  // Serial.println("Calibrating sensors...");
+
+  for (int i = 0; i < 10; i++) {  // Adjust the number of calibration iterations as needed
     for (int j = 0; j < 8; j++) {
       int sensorValue = analogRead(linePins[j]);
 
@@ -152,28 +189,16 @@ void calibrateSensors() {
       if (sensorValue > maxlineValue[j]) {
         maxlineValue[j] = sensorValue;
       }
+      sensorValues[j] = sensorValue;
     }
-    delay(10);
   }
-
-  // Calculate static thresholds for each sensor
+   // Calculate static thresholds for each sensor
   for (int i = 0; i < 8; i++) {
-    High_Threshold[i] = (maxlineValue[i] + minlineValue[i]) / 2 + 50; // Black threshold
-    Low_Threshold[i] = (maxlineValue[i] + minlineValue[i]) / 2 + 100; // Adjusted white threshold (higher range)
-
-    Serial.print("Sensor ");
-    Serial.print(i + 1);
-    Serial.print(" -> Min: ");
-    Serial.print(minlineValue[i]);
-    Serial.print(", Max: ");
-    Serial.print(maxlineValue[i]);
-    Serial.print(", High Threshold: ");
-    Serial.print(High_Threshold[i]);
-    Serial.print(", Low Threshold: ");
-    Serial.println(Low_Threshold[i]);
+  High_Threshold[i] = 800; //(maxlineValue[i] + minlineValue[i]) / 2 + 100; // Black threshold
+  Low_Threshold[i] =  High_Threshold[i] - 50;//( maxlineValue[i] + minlineValue[i]) / 2 - 100; // Adjusted white threshold (higher range)
   }
+  // Serial.println("Calibration complete!");
 }
-
 
 void lineCalibration() {
   for (int i = 0; i < 8; i++) {
@@ -187,24 +212,28 @@ void lineCalibration() {
     for (int j = 0; j < AVERAGE_WINDOW; j++) {
       sum += recentReadings[i][j];
     }
-    avglineValue[i] = sum / AVERAGE_WINDOW;
+    avglineValue[i] = sum;
   }
 
   // Update reading index
   readingIndex = (readingIndex + 1) % AVERAGE_WINDOW;
 
-  delay(200); // Delay for stability
+  //delay(200); // Delay for stability
 }
 
 void determineStates() {
   for (int i = 0; i < 8; i++) {
-    if (avglineValue[i] > High_Threshold[i]) {
+    if (sensorValues[i] >= High_Threshold[i]) {
       sensorStates[i] = "black";
-    } else if (avglineValue[i] < Low_Threshold[i]) {
+    } else if (sensorValues[i] <= Low_Threshold[i]) {
       sensorStates[i] = "white";
     } else {
-      sensorStates[i] = "unknown"; // For values in between thresholds
+      // In the gap between thresholds, maintain the previous state
+      sensorStates[i] = previousSensorStates[i];
     }
+
+    // Update the previous state after determining the current state
+    previousSensorStates[i] = sensorStates[i];
   }
 }
 
@@ -261,23 +290,20 @@ void steerError()
       steeringError += sensorWeights[i];  // Add weighted sensor value to the total error
     }
    }
-
-  // // Use the PID output to control the motors
-  // adjustSteering(PID_output, steeringError);
 }
 
 int PID(int steeringError)
 {
    // Proportional term
-  int proportional = Kp * steeringError;
+  float proportional = Kp * steeringError;
 
   // Integral term
   integral += steeringError;  // Accumulate error over time
-  int integralTerm = Ki * integral;
+  float integralTerm = Ki * integral;
 
   // Derivative term
-  int derivative = steeringError - prevError;  // Rate of change of error
-  int derivativeTerm = Kd * derivative;
+  float derivative = steeringError - prevError;  // Rate of change of error
+  float derivativeTerm = Kd * derivative;
 
   // Update previous error for the next loop
   prevError = steeringError;
@@ -289,26 +315,73 @@ int PID(int steeringError)
 
 void adjustSteering(int steeringError) 
 {
-   // Calculate PID values based on the steering error
-  int PID_output = PID(steeringError);
+  // Calculate PID output based on the steering error
+  float PID_output = PID(steeringError);
 
-  // Adjust movement based on steering error
-  	if (steeringError > 0)
-    {
-      // If error is positive, steer right
+  // Base speed for motors when moving forward
+  int baseSpeed = 200; // Adjust this as necessary for your robot
 
+  // Adjust movement based on the steering error
+  if (steeringError <= 4 && steeringError >= -4 && steeringError != 0)
+  {
+    // Robot is aligned, move straight
+    analogWrite(MotorA2, 255); // Left motor forward
+    digitalWrite(MotorA1, LOW);      // Ensure left motor doesn't go backward
+    analogWrite(MotorB1, 243); // Right motor forward
+    digitalWrite(MotorB2, LOW);      // Ensure right motor doesn't go backward
+  }
+  else if (steeringError > 6)
+  {
+    // Robot needs to turn right
+    int leftSpeed = baseSpeed + PID_output;  // Increase speed for left motor
+    int rightSpeed = baseSpeed - PID_output; // Reduce speed for right motor
 
-    } else if (steeringError < 0)
-    {
-      // If error is negative, steer left
+    // Constrain speeds to valid PWM range
+    leftSpeed = constrain(leftSpeed, 0, 255);
+    rightSpeed = constrain(rightSpeed, 0, 255);
 
-    }
-    else
-    {
-      forward();
-    }
+    // Apply motor speeds
+    analogWrite(MotorA2, leftSpeed); // Left motor forward
+    digitalWrite(MotorA1, LOW);      // Ensure left motor doesn't go backward
+    analogWrite(MotorB1, rightSpeed); // Right motor forward
+    digitalWrite(MotorB2, LOW);       // Ensure right motor doesn't go backward
+  }
+  else if (steeringError == 0)
+  {
+    // Apply motor speeds
+    analogWrite(MotorA2, 0); 
+    digitalWrite(MotorA1, LOW);      
+    analogWrite(MotorB1, 0); 
+    digitalWrite(MotorB2, LOW);       
+  }
+  else if (steeringError < -6)
+  {
+    // Robot needs to turn left
+    int leftSpeed = baseSpeed - PID_output;  // Reduce speed for left motor
+    int rightSpeed = baseSpeed + PID_output; // Increase speed for right motor
 
+    // Constrain speeds to valid PWM range
+    leftSpeed = constrain(leftSpeed, 0, 255);
+    rightSpeed = constrain(rightSpeed, 0, 255);
+
+    // Apply motor speeds
+    analogWrite(MotorA2, leftSpeed); // Left motor forward
+    digitalWrite(MotorA1, LOW);      // Ensure left motor doesn't go backward
+    analogWrite(MotorB1, rightSpeed); // Right motor forward
+    digitalWrite(MotorB2, LOW);       // Ensure right motor doesn't go backward
+  }
+
+  // Optional: Debugging output
+  Serial.print("Steering Error: ");
+  Serial.print(steeringError);
+  Serial.print(" | PID Output: ");
+  Serial.print(PID_output);
+  // Serial.print(" | Left Speed: ");
+  // Serial.print((steeringError >= 0) ? baseSpeed + PID_output : baseSpeed - PID_output);
+  // Serial.print(" | Right Speed: ");
+  // Serial.println((steeringError >= 0) ? baseSpeed - PID_output : baseSpeed + PID_output);
 }
+
  
 void sonar() // printing distance
 {
@@ -434,14 +507,6 @@ void turn_Right() // turn right with a 90 degree angle
 
 
 
-
-
-
-
-
-
-
-
 // void spin_Left() 
 // { // should be done
 //   reset_Rotations();  
@@ -518,16 +583,18 @@ void turn_Right() // turn right with a 90 degree angle
 //   }
 // }
 
-// void printSensorStates() {
-//   for (int i = 0; i < 8; i++) {
-//     Serial.print("Sensor ");
-//     Serial.print(i + 1);
-//     Serial.print(": ");
-//     Serial.print("Avg = ");
-//     Serial.print(avglineValue[i]);
-//     Serial.print(" -> State: ");
-//     Serial.println(sensorStates[i]);
-//   }
-//   Serial.println(" ");
-//   delay(500); // Delay for readability in the Serial Monitor
-// }
+void printSensorStates() {
+  // for (int i = 0; i < 8; i++) {
+  //   Serial.print("Sensor ");
+  //   Serial.print(i + 1);
+  //   Serial.print(": ");
+  //   Serial.print("S.value = ");
+  //   Serial.print(sensorValues[i]);
+  //   Serial.print(" -> State: ");
+  //   Serial.println(sensorStates[i]);
+  //   Serial.println(Low_Threshold[i]);
+  //   Serial.println(High_Threshold[i]);
+  // }
+  // Serial.println(" ");
+  // delay(500); // Delay for readability in the Serial Monitor
+}
