@@ -62,9 +62,9 @@ int distance = (duration * 0.017); // Distance in cm
 bool flagUp = false;
 
 // PID variables
-float Kp = 6.0;   // Increase proportional constant for quicker response
-float Ki = 0.7;   // Small integral constant to reduce drift over time
-float Kd = 1.1;   // Moderate derivative constant to dampen oscillations
+float Kp = 6.1;   // Increase proportional constant for quicker response 6.1
+float Ki = 0.5;   // Small integral constant to reduce drift over time 0.75
+float Kd = 1.1;   // Moderate derivative constant to dampen oscillations 1.25 // 1.5
 
 float prevError = 0;    // Previous error value (for derivative term)
 float integral = 0;     // Accumulated error (for integral term)
@@ -319,7 +319,7 @@ void adjustSteering(int steeringError)
   float PID_output = PID(steeringError);
 
   // Base speed for motors when moving forward
-  int baseSpeed = 200; // Adjust this as necessary for your robot
+  int baseSpeed = 200; // Adjust this as necessary for your robot // 200
 
   // Adjust movement based on the steering error
   if (steeringError <= 4 && steeringError >= -4 && steeringError != 0)
@@ -330,7 +330,7 @@ void adjustSteering(int steeringError)
     analogWrite(MotorB1, 243); // Right motor forward
     digitalWrite(MotorB2, LOW);      // Ensure right motor doesn't go backward
   }
-  else if (steeringError > 6)
+  else if (steeringError > 6 ) // > 6
   {
     // Robot needs to turn right
     int leftSpeed = baseSpeed + PID_output;  // Increase speed for left motor
@@ -354,7 +354,7 @@ void adjustSteering(int steeringError)
     analogWrite(MotorB1, 0); 
     digitalWrite(MotorB2, LOW);       
   }
-  else if (steeringError < -6)
+  else if (steeringError < -6 )
   {
     // Robot needs to turn left
     int leftSpeed = baseSpeed - PID_output;  // Reduce speed for left motor
