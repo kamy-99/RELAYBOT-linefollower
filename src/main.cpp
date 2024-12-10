@@ -1,11 +1,15 @@
 #include <Arduino.h>
 
 // Sonar pin defines
+// Sonar pin defines
 #define trig 4
 #define echo 7
 
 // Motor pin defines
+
+// Motor pin defines
 #define MotorA1 8 // MotorA1 at port 8 digital
+#define MotorA2 10 // MotorA2 at port 10 analog 
 #define MotorA2 10 // MotorA2 at port 10 analog 
 #define MotorB1 11 // MotorB1 at port 11 analog
 #define MotorB2 12 // MotorB2 at port 12 digital  
@@ -78,6 +82,14 @@ void spin_Right();
 void spin_Left();
 void turn_Right();
 void turn_Left();
+
+// movement functions with rotation
+void spin_LeftR();
+void spin_RightR();
+void turn_RightR();
+
+//sonar and object avoidance
+void flagCheck();
 void sonar();
 void Initializing();
 void calibrateSensors();
@@ -100,8 +112,16 @@ void setup() {
  pinMode(MotorB1, OUTPUT); // MotorB1 is output
  pinMode(MotorB2, OUTPUT); // MotorB2 is output
 
+
  pinMode(trig, OUTPUT);
  pinMode(echo, INPUT);
+
+ pinMode(Gripper, OUTPUT);
+ pinMode(RotationR1, INPUT_PULLUP);
+ pinMode(RotationR2, INPUT_PULLUP);
+
+ attachInterrupt(digitalPinToInterrupt(RotationR1), updaterotation_R1, CHANGE);
+ attachInterrupt(digitalPinToInterrupt(RotationR2), updaterotation_R2, CHANGE);
 
  pinMode(Gripper, OUTPUT);
  pinMode(RotationR1, INPUT_PULLUP);
@@ -410,28 +430,380 @@ void sonar() // printing distance
         turn_Right();
         spin_Left();
         stop();
-      }
+
+        hasExecuted = true; // Mark as executed
+    }
+}
+
+void forwardRotation1()
+{
+  reset_Rotations();
+
+  // Start moving forward
+  analogWrite(MotorA2, 255);
+  digitalWrite(MotorA1, LOW); 
+
+  analogWrite(MotorB1, 255);
+  digitalWrite(MotorB2, LOW);  
+
+  // Wait until both motors have completed 20 rotations
+  while (RightRotation < 30 && LeftRotation < 30) 
+  {
+    // Do nothing, just wait
+    delay(10);  // Small delay to prevent CPU hogging
+  }
+
+  // Stop motors after reaching 20 rotations
+  stop();
+}
+
+void forwardRotation2()
+{
+  reset_Rotations();
+  
+  // Start moving forward
+  analogWrite(MotorA2, 255);
+  digitalWrite(MotorA1, LOW); 
+
+  analogWrite(MotorB1, 255);
+  digitalWrite(MotorB2, LOW);  
+
+  // Wait until both motors have completed 20 rotations
+  while (RightRotation < 7 && LeftRotation < 7) 
+  {
+    // Do nothing, just wait
+    delay(10);  // Small delay to prevent CPU hogging
+  }
+
+  // Stop motors after reaching 20 rotations
+  stop();
+}
+
+
+void spin_Left() // spin left on its axle in a 90 degree angle
+{
+  reset_Rotations();  
+  analogWrite(MotorB1, 255);  // right forward
+  digitalWrite(MotorA1, HIGH);// left bacward
+  analogWrite(MotorA2, 22);   // left forward
+  digitalWrite(MotorB2, LOW); // right backward
+  delay(540); //495
+}
+
+void flagCheck()
+{
+  if(flagUp == false)
+  {
+    Serial.println("Stuck before");
+    // if (distance[0] > 0 && distance[1] > 0 && abs(distance[0] - distance[1]) < 20)
+    if (distance[0] > 20)
+      {
+        Serial.println("Does it run");
+        flagUp = true;
+        Serial.println("flagUp = true");
     }
   }
-  else
-  {
-    forward();
-  }
-  return;
 }
+
+// void sonar() // printing distance
+// {
+//   digitalWrite(trig, LOW);
+//   delayMicroseconds(2);
+//   digitalWrite(trig, HIGH);
+//   delayMicroseconds(10);
+//   digitalWrite(trig, LOW);
+
+//   duration = pulseIn(echo, HIGH); // Use the global duration variable
+//   distance = (duration * 0.017); // Update the global distance variable
+
+//   Serial.print("Distance: ");
+//   Serial.print(distance);
+//   Serial.println(" cm");
+// }
+
+
+void gripper(int angle) 
+{
+  // Map the angle to the pulse width (1000 to 2000 microseconds)
+  int pulseWidth = map(angle, 0, 180, 1000, 2000);
+
+  for (int i = 0; i < 50; i++) { // Repeat to maintain the pulse for ~1 second
+    digitalWrite(Gripper, HIGH); // Set the pin high
+    delayMicroseconds(pulseWidth); // Wait for the pulse width duration
+    digitalWrite(Gripper, LOW); // Set the pin low
+    delayMicroseconds(20000 - pulseWidth); // Wait for the rest of the 20ms period
+    
+  }
+}
+
+
+void Initializing()
+{
+  for (int i = 0; i < 8; i++) {
+    pinMode(linePins[i], INPUT);
+    sensorStates[i] = " "; // Initial state for all sensors
+
+    // Initialize recent readings
+    for (int j = 0; j < AVERAGE_WINDOW; j++) {
+      recentReadings[i][j] = 0;
+    }
+  }
+}
+
+void calibrateSensors() {
+  Serial.println("Calibrating sensors...");
+
+  for (int i = 0; i < 10; i++) {  // Adjust the number of calibration iterations as needed
+    for (int j = 0; j < 8; j++) {
+      int sensorValue = analogRead(linePins[j]);
+
+      // Update minimum and maximum values
+      if (sensorValue < minlineValue[j]) {
+        minlineValue[j] = sensorValue;
+      }
+      if (sensorValue > maxlineValue[j]) {
+        maxlineValue[j] = sensorValue;
+      }
+      sensorValues[j] = sensorValue;
+    }
+  }
+   // Calculate static thresholds for each sensor
+  for (int i = 0; i < 8; i++) {
+  High_Threshold[i] = (maxlineValue[i] + minlineValue[i]) / 2 + 50; // Black threshold
+  Low_Threshold[i] = (maxlineValue[i] + minlineValue[i]) / 2 -50; // Adjusted white threshold (higher range)
+  }
+  Serial.println("Calibration complete!");
+}
+
+void lineCalibration() {
+  for (int i = 0; i < 8; i++) {
+    int sensorValue = analogRead(linePins[i]);
+
+    // Update recent readings
+    recentReadings[i][readingIndex] = sensorValue;
+
+    // Calculate moving average
+    long sum = 0;
+    for (int j = 0; j < AVERAGE_WINDOW; j++) {
+      sum += recentReadings[i][j];
+    }
+    avglineValue[i] = sum / AVERAGE_WINDOW;
+  }
+
+  // Update reading index
+  readingIndex = (readingIndex + 1) % AVERAGE_WINDOW;
+
+  delay(200); // Delay for stability
+}
+
+void determineStates() {
+  for (int i = 0; i < 8; i++) {
+    if (sensorValues[i] > High_Threshold[i]) {
+      sensorStates[i] = "black";
+    } else if (sensorValues[i] < Low_Threshold[i]) {
+      sensorStates[i] = "white";
+    } else {
+      sensorStates[i] = "unknown"; // For values in between thresholds
+    }
+  }
+}
+
+void updaterotation_R1() // right rotation
+{
+  static unsigned long timer;
+  static bool lastState;
+  noInterrupts();
+  if (millis() > timer) {
+    bool state = digitalRead(RotationR1);
+    if (lastState != state) {
+      RightRotation++;
+      lastState = state;
+    }
+  timer = millis() + DVALUE;
+  }
+  interrupts();
+}
+
+void updaterotation_R2() // left rotation
+{
+  static unsigned long timer;
+  static bool lastState;
+  noInterrupts();
+  if (millis() > timer) {
+    bool state = digitalRead(RotationR2);
+    if (lastState != state) {
+      LeftRotation++;
+      lastState = state;
+    }
+  timer = millis() + DVALUE;
+  }
+  interrupts();
+}
+
+void reset_Rotations() 
+{
+  noInterrupts();
+  RightRotation = 0;
+  LeftRotation = 0;
+  interrupts();
+}
+
+
+void steerError()
+{
+  int steeringError = 0; // Variable to store the calculated error for steering
+
+   // Read all sensor values and calculate the weighted sum (steering error)
+   for (int i =0; i < 8; i++)
+   {
+    if (sensorStates[i] == "black")
+    {
+      steeringError += sensorWeights[i];  // Add weighted sensor value to the total error
+    }
+   }
+
+  // // Use the PID output to control the motors
+  // adjustSteering(PID_output, steeringError);
+}
+
+int PID(int steeringError)
+{
+   // Proportional term
+  int proportional = Kp * steeringError;
+
+  // Integral term
+  integral += steeringError;  // Accumulate error over time
+  int integralTerm = Ki * integral;
+
+  // Derivative term
+  int derivative = steeringError - prevError;  // Rate of change of error
+  int derivativeTerm = Kd * derivative;
+
+  // Update previous error for the next loop
+  prevError = steeringError;
+
+  // Return the combined PID output
+  return proportional + integralTerm + derivativeTerm;
+}
+
+
+void adjustSteering(int steeringError) 
+{
+  // Calculate PID output based on the steering error
+  int PID_output = PID(steeringError);
+
+  // Base speed for motors when moving forward
+  int baseSpeed = 200; // Adjust this as necessary for your robot
+
+  // Adjust movement based on the steering error
+  if (steeringError == 0)
+  {
+    // Robot is aligned, move straight
+    analogWrite(MotorA2, 255); // Left motor forward
+    digitalWrite(MotorA1, LOW);      // Ensure left motor doesn't go backward
+    analogWrite(MotorB1, 243); // Right motor forward
+    digitalWrite(MotorB2, LOW);      // Ensure right motor doesn't go backward
+  }
+  else if (steeringError > 0)
+  {
+    // Robot needs to turn right
+    int leftSpeed = baseSpeed + PID_output;  // Increase speed for left motor
+    int rightSpeed = baseSpeed - PID_output; // Reduce speed for right motor
+
+    // Constrain speeds to valid PWM range
+    leftSpeed = constrain(leftSpeed, 0, 255);
+    rightSpeed = constrain(rightSpeed, 0, 255);
+
+    // Apply motor speeds
+    analogWrite(MotorA2, leftSpeed); // Left motor forward
+    digitalWrite(MotorA1, LOW);      // Ensure left motor doesn't go backward
+    analogWrite(MotorB1, rightSpeed); // Right motor forward
+    digitalWrite(MotorB2, LOW);       // Ensure right motor doesn't go backward
+  }
+  else if (steeringError < 0)
+  {
+    // Robot needs to turn left
+    int leftSpeed = baseSpeed - PID_output;  // Reduce speed for left motor
+    int rightSpeed = baseSpeed + PID_output; // Increase speed for right motor
+
+    // Constrain speeds to valid PWM range
+    leftSpeed = constrain(leftSpeed, 0, 255);
+    rightSpeed = constrain(rightSpeed, 0, 255);
+
+    // Apply motor speeds
+    analogWrite(MotorA2, leftSpeed); // Left motor forward
+    digitalWrite(MotorA1, LOW);      // Ensure left motor doesn't go backward
+    analogWrite(MotorB1, rightSpeed); // Right motor forward
+    digitalWrite(MotorB2, LOW);       // Ensure right motor doesn't go backward
+  }
+
+  // Optional: Debugging output
+  Serial.print("Steering Error: ");
+  Serial.print(steeringError);
+  Serial.print(" | PID Output: ");
+  Serial.print(PID_output);
+  Serial.print(" | Left Speed: ");
+  Serial.print((steeringError >= 0) ? baseSpeed + PID_output : baseSpeed - PID_output);
+  Serial.print(" | Right Speed: ");
+  Serial.println((steeringError >= 0) ? baseSpeed - PID_output : baseSpeed + PID_output);
+}
+
+ 
+// void sonar() // printing distance
+// {
+//   digitalWrite(trig, LOW);
+//   delayMicroseconds(2);
+//   digitalWrite(trig, HIGH);
+//   delayMicroseconds(10);
+//   digitalWrite(trig, LOW);
+ 
+//   Serial.print("Distance: ");
+//   Serial.print(distance);
+//   Serial.println(" cm");
+ 
+//   delay(250);
+ 
+//   if (distance <= 40)
+//   {
+//     forward();
+//     if (distance <= 35)
+//     {
+//       forward();
+//       if (distance <= 30)
+//       {
+//         spin_Left();
+//         turn_Right();
+//         turn_Right();
+//         spin_Left();
+//         stop();
+//       }
+//     }
+//   }
+//   else
+//   {
+//     forward();
+//   }
+//   return;
+// }
  
 void forward()
 {
   reset_Rotations();
+  reset_Rotations();
   analogWrite(MotorA2, 250); // Left motor runs at full speed
+  digitalWrite(MotorA1, LOW);
+  digitalWrite(MotorB2, LOW);
   digitalWrite(MotorA1, LOW);
   digitalWrite(MotorB2, LOW);
  
   for(int pwm = 0; pwm < 256; pwm++)
+  for(int pwm = 0; pwm < 256; pwm++)
   {
+    analogWrite(MotorB1, pwm + 12); // Right motor with PWM control, slightly reduced
     analogWrite(MotorB1, pwm + 12); // Right motor with PWM control, slightly reduced
     delay(200);
   }
+  delay(5000);
   delay(5000);
 }
  
@@ -439,12 +811,18 @@ void backward()
 {
   reset_Rotations();
   // analogWrite(MotorB1,)
+  reset_Rotations();
+  // analogWrite(MotorB1,)
   analogWrite(MotorA2, 0);
+  digitalWrite(MotorB2, HIGH);
+  digitalWrite(MotorA1, HIGH); // Left motor runs at full speed
   digitalWrite(MotorB2, HIGH);
   digitalWrite(MotorA1, HIGH); // Left motor runs at full speed
  
   for(int pwm = 255; pwm > 0; pwm++)
+  for(int pwm = 255; pwm > 0; pwm++)
   {
+    analogWrite(MotorB1, pwm - 17); // Right motor with PWM control, slightly reduced
     analogWrite(MotorB1, pwm - 17); // Right motor with PWM control, slightly reduced
     delay(200);
   }
@@ -457,10 +835,20 @@ void stop() // stop all motors
   digitalWrite(MotorA1, LOW);// left bacward
   analogWrite(MotorA2, 0);   // left forward
   digitalWrite(MotorB2, LOW); // right backward
+  analogWrite(MotorB1, 0);  // right forward
+  digitalWrite(MotorA1, LOW);// left bacward
+  analogWrite(MotorA2, 0);   // left forward
+  digitalWrite(MotorB2, LOW); // right backward
 }
+
 
 void spin_Right() // spin right on its axle in a 90 degree angle
 {
+  reset_Rotations();
+  analogWrite(MotorB1, 62);  // right forward
+  digitalWrite(MotorA1, LOW);// left bacward
+  analogWrite(MotorA2, 255);   // left forward
+  digitalWrite(MotorB2, HIGH); // right backward
   reset_Rotations();
   analogWrite(MotorB1, 62);  // right forward
   digitalWrite(MotorA1, LOW);// left bacward
@@ -482,12 +870,15 @@ void spin_Left() // spin left on its axle in a 90 degree angle
 void turn_Left() // turn left with a 90 degree angle
 {
   reset_Rotations();
+  reset_Rotations();
   analogWrite(MotorA2, 255);
   analogWrite(MotorB1, 255);
   delay(100);
   digitalWrite(MotorA1, LOW);// left bacward
+  digitalWrite(MotorA1, LOW);// left bacward
   analogWrite(MotorA2, 140); // left forward
   analogWrite(MotorB1, 255); // right forward
+  digitalWrite(MotorB2, LOW); // right backward
   digitalWrite(MotorB2, LOW); // right backward
   delay(1800);
 }
@@ -495,12 +886,15 @@ void turn_Left() // turn left with a 90 degree angle
 void turn_Right() // turn right with a 90 degree angle
 {
   reset_Rotations();
+  reset_Rotations();
   analogWrite(MotorA2, 255);
   analogWrite(MotorB1, 255);
   delay(100);
   digitalWrite(MotorA1, LOW);// left bacward
+  digitalWrite(MotorA1, LOW);// left bacward
   analogWrite(MotorA2, 255); // left forward
   analogWrite(MotorB1, 140); // right forward
+  digitalWrite(MotorB2, LOW); // right backward
   digitalWrite(MotorB2, LOW); // right backward
   delay(2625);
 }
