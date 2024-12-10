@@ -14,6 +14,8 @@
 #define RotationR1 2 // RotationR1 at port 2 digital
 #define RotationR2 3 // RotationR2 at port 3 digital
 #define DVALUE 10 // debounce value in ms
+
+#define SERVO_INTERVAL 20
 #define PIVALUE 3.141592653589793238462643383279502884197 // 39 digits or so
 
 // A1 left backward
@@ -51,6 +53,7 @@ int previousLeftRotation = 0;
 
 // gripper
 int angle;
+int pulse;
 
 // PWM
 int pwm;
@@ -62,7 +65,7 @@ int LeftRotation = 0;
 
 // Sonar
 float duration, ver_dis;
-float distance[2];
+int distance;
 bool flagUp = false;
 
 // PID variables
@@ -101,10 +104,10 @@ void updateSonar();
 
 // PID and Line follower
 void Initializing();
-// void calibrateSensors();
-// void lineCalibration();
-// void determineStates();
-// void printSensorStates();
+void calibrateSensors();
+void lineCalibration();
+void determineStates();
+void printSensorStates();
 void updaterotation_R1();
 void updaterotation_R2();
 void reset_Rotations();
@@ -116,12 +119,14 @@ void adjustSteering(int steeringError);
 void grabCone();
 void forwardRotation1();
 void forwardRotation2();
-void gripper(int angle); 
+void gripper(int pulse); 
 
 // drop cone
-bool dropCone();
+void dropCone();
 
-void setup() {
+void setup() 
+{
+
  Serial.begin(9600);
  Initializing();
  pinMode(MotorA1, OUTPUT); // MotorA1 is output
@@ -138,6 +143,8 @@ void setup() {
 
  attachInterrupt(digitalPinToInterrupt(RotationR1), updaterotation_R1, CHANGE);
  attachInterrupt(digitalPinToInterrupt(RotationR2), updaterotation_R2, CHANGE);
+
+ gripper(2000);
 }
  
 void loop()
@@ -145,27 +152,17 @@ void loop()
   // always in loop begin
   updaterotation_R2();
   updaterotation_R1();
-  // lineCalibration();
-  // calibrateSensors();
-  // determineStates();
-  // printSensorStates();
+  lineCalibration();
+  calibrateSensors();
+  determineStates();
+  printSensorStates();
   // always in loop end
 
-  sonar();
-  // spin_LeftR();
-  // delay(1000);
-  // turn_RightR();
-  // turn_RightR();
-  // turn_RightR();
-  // turn_RightR();
-  // delay(1000);
-  // spin_LeftR();
-  // delay(1000);
-
-  // dropCone();
-
-  flagCheck();
-  grabCone();
+  // gripper(0);
+  // sonar();
+  // flagCheck();
+  // grabCone();
+  dropCone();
   // objectAvoidance();
   
 
@@ -181,56 +178,168 @@ void loop()
   }
   // Serial.println("in loop");
   }
-  // Serial.println("afterloop1 loop");
-  // adjustSteering(steeringError); //stucks the program
-  // Serial.println("after loop");
-  // if (flagUp == true)
   // {
-    // turn_Left();
-  //   spin_Right();
-  //   turn_Right();
-    // spin_Left();
-    // stop();
-    // delay(1000);
   // }
 
 }
 
-bool dropCone() 
+void gripper (int pulse) // 1000 closed   2000 open angle
+{
+  // int pulseWidth = map(angle, 0, 180, 1000, 2000); // -10 closed 130 open
+  static unsigned long timer;
+  static int lastPulse;
+  if (pulse == 0)
+  {
+    pulse = lastPulse;
+  }
+  else
+  {
+    lastPulse = pulse;
+  }
+    if (millis() > timer)
+    {
+      digitalWrite (Gripper, HIGH);
+      delayMicroseconds(pulse);
+      digitalWrite(Gripper, LOW);
+      timer = millis() + SERVO_INTERVAL;
+      Serial.println(timer);
+    }
+}
+
+
+void grabCone()
+{
+    if (!hasExecuted && flagUp) // Check if it hasn't executed and flagUp is true
+    {
+        gripper(2000);
+        forwardRotation1();
+        gripper(900);
+        forwardRotation2();
+        spin_Left();
+        stop();
+
+        hasExecuted = true; // Mark as executed
+    }
+    // while (hasExecuted == true && flagUp == true)
+    // {
+    //   gripper(0);
+    // }
+}
+
+void flagCheck()
+{
+  if(flagUp == false)
+  {
+    Serial.println("Stuck before");
+    // if (distance[0] > 0 && distance[1] > 0 && abs(distance[0] - distance[1]) < 20)
+    if (distance > 20)
+      {
+        Serial.println("Does it run");
+        flagUp = true;
+        Serial.println("flagUp = true");
+      }
+  }
+  delay (500);
+}
+
+void sonar()
+{
+    digitalWrite(trig, LOW);
+    delayMicroseconds(2);
+    digitalWrite(trig, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(trig, LOW);
+
+    duration = pulseIn(echo, HIGH);
+    distance = (duration * 0.017); // Speed of sound is approximately 343 m/s or 0.034 cm/µs
+
+    Serial.print("Distance: ");
+    Serial.println(distance);
+    updateSonar();
+} 
+
+
+void updateSonar() 
+{
+  static unsigned long timer;
+  if (millis() > timer) 
+  {
+      timer = millis() + 250; // update every 0.25s can change
+  }
+}
+
+// void dropCone()
+// {
+//   //check if all sensors are black
+//   for (int i = 0; i < 8; i++)
+//   {
+//     if (sensorStates[i] == "black")
+//     {
+//       allBlack = true
+//       break;
+//     }
+//   }
+
+//   // tel 5 rotaties vanaf moment alle lijnen zwart 
+//   if (allBlack == true)
+//   {  
+//     while (RightRotation < 5 && LeftRotation < 5) 
+//   {
+//     delay(10);
+//     stop 
+//   }
+//   }
+// }
+
+/*
+check voor alle 8 sensoren
+status black 
+als afgelopen 5 rotaties alle lijnen zwart dan drop cone
+*/
+
+
+void dropCone() 
 {
   // Check if all sensors are black
-  allBlack = true;
+  
   for (int i = 0; i < 8; i++) {
-    if (sensorStates[i] != "black") {
-      allBlack = false;
+    if (sensorStates[i] = "black") {
+      allBlack = true;
       break;
+      Serial.print("sensor all black");
     }
   }
 
   // If all sensors are black, check rotation
-  if (allBlack) 
+  if (allBlack == true) 
   {
+    Serial.print("allblack true");
     // Check if either wheel has completed a new rotation
     if (RightRotation > previousRightRotation || LeftRotation > previousLeftRotation) {
       allBlackRotationCount++;
       previousRightRotation = RightRotation;
       previousLeftRotation = LeftRotation;
+      Serial.print("rightrotaion leftrotation");
     }
 
     // If 5 rotations have been completed while all sensors are black, stop
-    if (allBlackRotationCount >= 5) {
-      stop();
+    if (allBlackRotationCount >= 5) 
+    {
+      spin_Left();
       allBlackRotationCount = 0;  // Reset for future use
-      return true;  // Indicate that we've stopped
+      Serial.print("blackrotations");
     }
-  } else {
+  } 
+  else 
+  {
     // Reset the count if not all sensors are black
     allBlackRotationCount = 0;
     previousRightRotation = RightRotation;
     previousLeftRotation = LeftRotation;
-  }
+    forward();
 
-  return false;  // Indicate that we haven't stopped
+    Serial.print("else forward");
+  }
 }
 
 void objectAvoidance()
@@ -239,7 +348,7 @@ void objectAvoidance()
     for(int attempt = 0; attempt < 3; attempt++)
     {
         sonar(); // Get a fresh distance measurement
-        if(ver_dis > 0 && ver_dis <= 30) // Check if object is within 30 cm
+        if(ver_dis > 0 && ver_dis <= 30) // Check if object is within 30 cm6
         {
             detectionCount++;
         }
@@ -303,23 +412,6 @@ void spin_RightR()
 
 void turn_RightR()
 {
-  //     reset_Rotations();
-
-  // // Start moving forward
-  // analogWrite(MotorA2, 255);
-  // digitalWrite(MotorA1, LOW); 
-
-  // analogWrite(MotorB1, 255);
-  // digitalWrite(MotorB2, LOW);  
-
-  // // Wait until both motors have completed 20 rotations
-  // while (RightRotation < 10 && LeftRotation < 35) 
-  // {
-  //   // Do nothing, just wait
-  //   delay(10);  // Small delay to prevent CPU hogging
-  // }
-
-  // // Stop motors after reaching 20 rotations
   stop();
 
   noInterrupts();
@@ -348,48 +440,6 @@ void turn_RightR()
   stop();
 }
 
-
-
-void sonar()
-{
-    digitalWrite(trig, LOW);
-    delayMicroseconds(2);
-    digitalWrite(trig, HIGH);
-    delayMicroseconds(10);
-    digitalWrite(trig, LOW);
-
-    duration = pulseIn(echo, HIGH);
-    ver_dis = (duration * 0.017); // Speed of sound is approximately 343 m/s or 0.034 cm/µs
-
-    Serial.print("Distance: ");
-    Serial.println(ver_dis);
-    updateSonar();
-} 
-
-
-void updateSonar() 
-{
-  static unsigned long timer;
-  if (millis() > timer) 
-  {
-      timer = millis() + 250; // update every 0.25s can change
-  }
-}
-
-void grabCone()
-{
-    if (!hasExecuted && flagUp) // Check if it hasn't executed and flagUp is true
-    {
-        gripper(130);
-        forwardRotation1();
-        gripper(-10);
-        forwardRotation2();
-        spin_Left();
-        stop();
-
-        hasExecuted = true; // Mark as executed
-    }
-}
 
 void forwardRotation1()
 {
@@ -434,64 +484,6 @@ void forwardRotation2()
   // Stop motors after reaching 20 rotations
   stop();
 }
-
-
-void spin_Left() // spin left on its axle in a 90 degree angle
-{
-  reset_Rotations();  
-  analogWrite(MotorB1, 255);  // right forward
-  digitalWrite(MotorA1, HIGH);// left bacward
-  analogWrite(MotorA2, 22);   // left forward
-  digitalWrite(MotorB2, LOW); // right backward
-  delay(540); //495
-}
-
-void flagCheck()
-{
-  if(flagUp == false)
-  {
-    Serial.println("Stuck before");
-    // if (distance[0] > 0 && distance[1] > 0 && abs(distance[0] - distance[1]) < 20)
-    if (distance[0] > 20)
-      {
-        Serial.println("Does it run");
-        flagUp = true;
-        Serial.println("flagUp = true");
-    }
-  }
-}
-
-// void sonar() // printing distance
-// {
-//   digitalWrite(trig, LOW);
-//   delayMicroseconds(2);
-//   digitalWrite(trig, HIGH);
-//   delayMicroseconds(10);
-//   digitalWrite(trig, LOW);
-
-//   duration = pulseIn(echo, HIGH); // Use the global duration variable
-//   distance = (duration * 0.017); // Update the global distance variable
-
-//   Serial.print("Distance: ");
-//   Serial.print(distance);
-//   Serial.println(" cm");
-// }
-
-
-void gripper(int angle) 
-{
-  // Map the angle to the pulse width (1000 to 2000 microseconds)
-  int pulseWidth = map(angle, 0, 180, 1000, 2000);
-
-  for (int i = 0; i < 50; i++) { // Repeat to maintain the pulse for ~1 second
-    digitalWrite(Gripper, HIGH); // Set the pin high
-    delayMicroseconds(pulseWidth); // Wait for the pulse width duration
-    digitalWrite(Gripper, LOW); // Set the pin low
-    delayMicroseconds(20000 - pulseWidth); // Wait for the rest of the 20ms period
-    
-  }
-}
-
 
 void Initializing()
 {
@@ -604,7 +596,6 @@ void reset_Rotations()
   interrupts();
 }
 
-
 void steerError()
 {
   int steeringError = 0; // Variable to store the calculated error for steering
@@ -703,44 +694,6 @@ void adjustSteering(int steeringError)
   Serial.print(" | Right Speed: ");
   Serial.println((steeringError >= 0) ? baseSpeed - PID_output : baseSpeed + PID_output);
 }
-
- 
-// void sonar() // printing distance
-// {
-//   digitalWrite(trig, LOW);
-//   delayMicroseconds(2);
-//   digitalWrite(trig, HIGH);
-//   delayMicroseconds(10);
-//   digitalWrite(trig, LOW);
- 
-//   Serial.print("Distance: ");
-//   Serial.print(distance);
-//   Serial.println(" cm");
- 
-//   delay(250);
- 
-//   if (distance <= 40)
-//   {
-//     forward();
-//     if (distance <= 35)
-//     {
-//       forward();
-//       if (distance <= 30)
-//       {
-//         spin_Left();
-//         turn_Right();
-//         turn_Right();
-//         spin_Left();
-//         stop();
-//       }
-//     }
-//   }
-//   else
-//   {
-//     forward();
-//   }
-//   return;
-// }
  
 void forward()
 {
@@ -790,8 +743,16 @@ void spin_Right() // spin right on its axle in a 90 degree angle
   digitalWrite(MotorB2, HIGH); // right backward
   delay(510); // 455
 }
- 
 
+void spin_Left() // spin left on its axle in a 90 degree angle
+{
+  reset_Rotations();  
+  analogWrite(MotorB1, 255);  // right forward
+  digitalWrite(MotorA1, HIGH);// left bacward
+  analogWrite(MotorA2, 22);   // left forward
+  digitalWrite(MotorB2, LOW); // right backward
+  delay(540); //495
+}
  
 void turn_Left() // turn left with a 90 degree angle
 {
@@ -818,71 +779,6 @@ void turn_Right() // turn right with a 90 degree angle
   digitalWrite(MotorB2, LOW); // right backward
   delay(2625);
 }
-
-
-
-// void spin_Left() 
-// { // should be done
-//   reset_Rotations();  
-//   analogWrite(MotorB1, 255);  // right forward
-//   digitalWrite(MotorA1, HIGH);// left bacward
-//   analogWrite(MotorA2, 22);   // left forward
-//   digitalWrite(MotorB2, LOW); // right backward
-// }
-
-// void spin_Right() // spin right on its axle in a 90 degree angle
-// {
-//   reset_Rotations();
-//   analogWrite(MotorB1, 62);  // right forward
-//   digitalWrite(MotorA1, LOW);// left bacward
-//   analogWrite(MotorA2, 255);   // left forward
-//   digitalWrite(MotorB2, HIGH); // right backward
-// }
-
-// void forward()
-// {
-//   reset_Rotations();
-//   analogWrite(MotorB1, 243);  // right forward
-//   digitalWrite(MotorA1, LOW);// left bacward
-//   analogWrite(MotorA2, 255);   // left forward
-//   digitalWrite(MotorB2, LOW); // right backward
-//   //old right 243
-//   // old left 255
-// }
-
-// void backward()
-// {
-//   reset_Rotations();
-//   analogWrite(MotorB1, 0);  // right forward
-//   digitalWrite(MotorA1, HIGH);// left bacward
-//   analogWrite(MotorA2, 0);   // left forward
-//   digitalWrite(MotorB2, HIGH); // right backward
-//   // old right 238
-//   // old left 250
-// }
-
-// void turn_Left() // turn left with a 90 degree angle
-// {
-//   reset_Rotations();
-//   analogWrite(MotorB1, 255);  // right forward
-//   digitalWrite(MotorA1, LOW);// left bacward
-//   analogWrite(MotorA2, 140);   // left forward
-//   digitalWrite(MotorB2, LOW); // right backward
-//   // old left 140
-//   //old right 255
-// }
-
-// void turn_Right()  // turn right with a 90 degree angle
-// { 
-//   reset_Rotations();
-//   analogWrite(MotorB1, 140);  // right forward
-//   digitalWrite(MotorA1, LOW);// left bacward
-//   analogWrite(MotorA2, 255);   // left forward
-//   digitalWrite(MotorB2, LOW); // right backward
-//   // old right 140
-//   // old left 255
-// }
-
 
 void printSensorStates() {
   for (int i = 0; i < 8; i++) {
